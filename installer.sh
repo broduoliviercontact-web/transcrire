@@ -58,6 +58,7 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 </dict>
 </plist>
 EOF
+xattr -cr "$APP"  # sinon codesign refuse (« detritus not allowed »)
 codesign --force --sign - "$APP"
 touch "$APP"  # le Finder rafraîchit l'icône
 echo "Transcrire.app est prête sur le Bureau."
