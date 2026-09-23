@@ -14,13 +14,22 @@ avec [Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) opt
 
 ## Installation
 
-Prérequis : Mac Apple Silicon sous macOS 26, outils en ligne de commande Xcode (`xcode-select --install`).
+Une seule commande à coller dans le Terminal :
 
 ```bash
-brew install ffmpeg uv
-uv tool install mlx-whisper
-./installer.sh        # construit Transcrire.app sur le Bureau
+curl -fsSL https://raw.githubusercontent.com/broduoliviercontact-web/transcrire/main/install.sh | sh
 ```
+
+Elle vérifie le Mac, installe ce qui manque (`ffmpeg`, `uv`, `mlx-whisper`), met le code dans
+`~/Transcrire` et construit **Transcrire.app** sur le Bureau. Rien n'est demandé en administrateur.
+
+Prérequis : Mac Apple Silicon sous macOS 26, [Homebrew](https://brew.sh) et les outils en ligne de
+commande Xcode (`xcode-select --install`) — l'installateur prévient s'il en manque un.
+
+Pour choisir les emplacements : `DOSSIER=~/code/transcrire DESTINATION=~/Applications/Transcrire.app`
+devant la commande. Pour mettre à jour, relance la même commande.
+
+À partir du code déjà cloné, `./installer.sh` suffit : il vérifie, compile et remplace l'app.
 
 Au premier usage, le modèle Whisper (1,6 Go) et les outils d'identification des voix (≈ 60 Mo) se téléchargent.
 
