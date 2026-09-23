@@ -1,5 +1,5 @@
 #!/bin/sh
-# Construit Transcrire.app sur le Bureau. À relancer après chaque modification des fichiers .swift.
+# Construit Transcrire.app sur le Bureau. À relancer après chaque modification (.swift ou diarisation.py).
 set -e
 cd "$(dirname "$0")"
 APP=~/Desktop/Transcrire.app
@@ -28,6 +28,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/fr.lproj"
 mv "$TMP/Transcrire" "$APP/Contents/MacOS/"
 iconutil -c icns "$TMP/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
+cp diarisation.py "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

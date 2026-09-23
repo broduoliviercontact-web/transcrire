@@ -5,6 +5,12 @@ import UniformTypeIdentifiers
 
 let violet = Color(red: 0.42, green: 0.33, blue: 0.96)  // même teinte que l'icône
 
+/// Une couleur par intervenant (couleurs système : lisibles en mode clair comme sombre).
+func couleur(_ intervenant: Int) -> Color {
+    let couleurs: [Color] = [.blue, .orange, .green, .pink, .teal, .yellow, .brown, .mint]
+    return couleurs[intervenant % couleurs.count]
+}
+
 let langues: [(code: String, nom: String)] = [
     ("auto", "Détection automatique"), ("fr", "Français"), ("en", "Anglais"), ("es", "Espagnol"),
     ("de", "Allemand"), ("it", "Italien"), ("pt", "Portugais"), ("nl", "Néerlandais"),
@@ -97,9 +103,12 @@ final class Session {
         let qualite = Qualite(rawValue: reglages.string(forKey: "qualite") ?? "") ?? .rapide
         let langue = reglages.string(forKey: "langue") ?? "auto"
         let vocabulaire = reglages.string(forKey: "vocabulaire") ?? ""
+        let identifier = reglages.object(forKey: "identifier") as? Bool ?? true
+        let nombre = reglages.integer(forKey: "nombre")  // 0 = automatique
         Task {
             await transcription.lancer(fichier, modele: qualite.modele,
-                                       langue: langue == "auto" ? nil : langue, vocabulaire: vocabulaire)
+                                       langue: langue == "auto" ? nil : langue, vocabulaire: vocabulaire,
+                                       identifier: identifier, nombreIntervenants: nombre >= 2 ? nombre : nil)
         }
     }
 
@@ -108,7 +117,7 @@ final class Session {
         panneau.nameFieldStringValue = format.nomDeFichier(nom)
         panneau.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
         panneau.allowedContentTypes = [format == .srt ? UTType(filenameExtension: "srt") ?? .plainText : .plainText]
-        let texte = format.contenu(transcription.phrases)
+        let texte = format.contenu(transcription.phrases, nom: transcription.nom)
         feuille(panneau) {
             guard let url = panneau.url else { return }
             do { try texte.write(to: url, atomically: true, encoding: .utf8) }
@@ -194,7 +203,7 @@ struct FenetrePrincipale: View {
                 Menu("Exporter", systemImage: "square.and.arrow.up") {
                     ForEach(FormatExport.allCases) { f in Button(f.rawValue + "…") { session.exporter(f) } }
                     Divider()
-                    Button("Copier tout le texte") { session.copier(FormatExport.texte.contenu(t.phrases)) }
+                    Button("Copier tout le texte") { session.copier(FormatExport.texte.contenu(t.phrases, nom: t.nom)) }
                 }
                 .help("Enregistrer ou copier la transcription")
                 .disabled(t.etat != .terminee)
@@ -285,7 +294,12 @@ struct VueTranscription: View {
                 VStack(alignment: .leading, spacing: 22) {
                     EnTete().id("haut")
                     LazyVStack(alignment: .leading, spacing: 2) {
+                        let avecNoms = !t.intervenants.isEmpty
                         ForEach(t.phrases) { p in
+                            // nom affiché à chaque changement de personne (les id sont les positions dans la liste)
+                            if avecNoms, let i = p.intervenant, p.id == 0 || t.phrases[p.id - 1].intervenant != i {
+                                NomIntervenant(intervenant: i)
+                            }
                             LignePhrase(phrase: p, active: p.id == active, heures: heures, enDirect: t.active)
                         }
                     }
@@ -341,6 +355,22 @@ struct EnTete: View {
                 } else if t.etat == .annulee || isEchec {
                     Button("Relancer", systemImage: "arrow.clockwise") { session.relancer() }
                         .buttonStyle(.glass)
+                } else if t.etat == .terminee {
+                    Menu {
+                        ForEach(FormatExport.allCases) { format in
+                            Button(format.rawValue + "…") { session.exporter(format) }
+                        }
+                        Divider()
+                        Button("Copier le texte") {
+                            session.copier(FormatExport.texte.contenu(t.phrases, nom: t.nom))
+                        }
+                    } label: {
+                        Label("Télécharger", systemImage: "arrow.down.circle")
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.glassProminent)
+                    .fixedSize()
+                    .help("Enregistrer la transcription dans Téléchargements")
                 }
             }
 
@@ -378,9 +408,32 @@ struct EnTete: View {
                         Text(detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 }
+            case .voix:
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        ProgressView(value: t.progressionVoix)
+                        Text(t.progressionVoix, format: .percent.precision(.fractionLength(0)))
+                            .font(.callout.weight(.semibold).monospacedDigit())
+                            .frame(width: 44, alignment: .trailing)
+                            .contentTransition(.numericText())
+                    }
+                    Label(t.progressionVoix > 0 ? "Identification des personnes qui parlent…"
+                          : "Identification des personnes… Au tout premier usage, installation des outils (environ 60 Mo).",
+                          systemImage: "person.2.wave.2")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .animation(.easeOut(duration: 0.4), value: t.progressionVoix)
             case .annulee:
                 Label("Transcription annulée", systemImage: "stop.circle").foregroundStyle(.secondary)
-            case .aucune, .terminee:
+            case .terminee:
+                if let avertissement = t.avertissement {
+                    Label(avertissement, systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+            case .aucune:
                 EmptyView()
             }
         }
@@ -394,7 +447,8 @@ struct EnTete: View {
         let t = session.transcription
         let duree = t.dureeAudio > 0 ? dureeHorloge(t.dureeAudio) : ""
         guard t.etat == .terminee else { return duree }
-        return "\(duree) · \(t.phrases.count) phrases · transcrit en \(dureeLisible(t.dureeTraitement.rounded()))"
+        let personnes = t.intervenants.isEmpty ? "" : " · \(t.intervenants.count) intervenants"
+        return "\(duree) · \(t.phrases.count) phrases\(personnes) · transcrit en \(dureeLisible(t.dureeTraitement.rounded()))"
     }
 
     private var detailProgression: String {
@@ -402,6 +456,26 @@ struct EnTete: View {
         var texte = "\(dureeHorloge(t.avance)) sur \(dureeHorloge(t.dureeAudio))"
         if let restant = t.restant { texte += " · encore environ \(dureeLisible(max(restant.rounded(), 1)))" }
         return texte
+    }
+}
+
+struct NomIntervenant: View {
+    @Environment(Session.self) private var session
+    let intervenant: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(couleur(intervenant))
+                .frame(width: 9, height: 9)
+            Text(session.transcription.nom(intervenant))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(couleur(intervenant))
+        }
+        .padding(.leading, 12)
+        .padding(.top, 16)
+        .padding(.bottom, 2)
+        .help("Pour renommer, utilise la section « Intervenants » des réglages")
     }
 }
 
@@ -489,9 +563,33 @@ struct Reglages: View {
     @AppStorage("langue") private var langue = "auto"
     @AppStorage("qualite") private var qualite = Qualite.rapide
     @AppStorage("vocabulaire") private var vocabulaire = ""
+    @AppStorage("identifier") private var identifier = true
+    @AppStorage("nombre") private var nombre = 0  // 0 = automatique
 
     var body: some View {
+        let t = session.transcription
         Form {
+            if !t.intervenants.isEmpty {
+                Section {
+                    ForEach(t.intervenants, id: \.self) { i in
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(couleur(i))
+                                .frame(width: 10, height: 10)
+                            TextField("Nom", text: Binding(get: { t.noms[i] ?? "" }, set: { t.noms[i] = $0 }),
+                                      prompt: Text("Intervenant \(i + 1)"))
+                                .labelsHidden()
+                        }
+                    }
+                } header: {
+                    Text("Qui parle ?")
+                } footer: {
+                    Text("Donne un nom à chaque voix : il apparaît dans le texte et dans les exports.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Transcription") {
                 Picker("Langue", selection: $langue) {
                     ForEach(langues, id: \.code) { Text($0.nom).tag($0.code) }
@@ -517,6 +615,22 @@ struct Reglages: View {
                 Text("Vocabulaire")
             } footer: {
                 Text("Facultatif. Noms propres, sigles ou jargon, pour que Whisper les écrive correctement.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Identifier les personnes qui parlent", isOn: $identifier)
+                if identifier {
+                    Picker("Nombre de personnes", selection: $nombre) {
+                        Text("Automatique").tag(0)
+                        ForEach(2...8, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                }
+            } header: {
+                Text("Intervenants")
+            } footer: {
+                Text("Indiquer le nombre exact de personnes améliore nettement le résultat.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
