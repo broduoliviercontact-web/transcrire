@@ -2,7 +2,7 @@
 # Construit Transcrire.app sur le Bureau. À relancer après chaque modification (.swift ou diarisation.py).
 set -e
 cd "$(dirname "$0")"
-APP=~/Desktop/Transcrire.app
+APP=${DESTINATION:-$HOME/Desktop/Transcrire.app}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -23,7 +23,7 @@ for t in 16 32 128 256 512; do
 done
 
 # 4. assemble le paquet .app
-pkill -x Transcrire || true
+pkill -f "$APP/Contents/MacOS/Transcrire" || true  # ne ferme que la copie qu'on remplace
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/fr.lproj"
 mv "$TMP/Transcrire" "$APP/Contents/MacOS/"
