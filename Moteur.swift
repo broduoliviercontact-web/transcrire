@@ -195,8 +195,10 @@ final class Transcription {
             // Qui parle quand : sur le processeur, pendant que Whisper occupe la puce graphique.
             async let tours = identifier ? diariser(copie, nombre: nombreIntervenants) : []
 
+            // --condition-on-previous-text False : sans ça, Whisper s'emballe et répète le même mot
+            // des centaines de fois dès qu'il bute sur un silence ou une hésitation.
             var arguments = [copie.path, "--model", modele, "--verbose", "True", "--word-timestamps", "True",
-                             "-f", "json", "-o", dossier.path]
+                             "--condition-on-previous-text", "False", "-f", "json", "-o", dossier.path]
             if let langue { arguments += ["--language", langue] }
             if !vocabulaire.isEmpty { arguments += ["--initial-prompt", vocabulaire] }
 
